@@ -1,10 +1,10 @@
+import streamlit as st
 import requests
 import pandas as pd
-import ast
 import time
 from datetime import timedelta, datetime
 
-token = "RGAPI-6a9d5501-8e90-4b3b-972d-a755ced3dfd7"
+token = "RGAPI-ba7ca687-ab87-45fe-85f2-04aac6b9d3a5"
 
 def editLinkApi(link:str):
     """
@@ -38,7 +38,7 @@ def accountInfo(region:str, nome:str, tag:str):
 
     return {}
 
-def idMatchs(region:str, puuid:str, count=50, start=0):
+def idMatchs(region:str, puuid:str, count, start=0):
     """
     Coleta os id's das partidas.
     Doc: https://developer.riotgames.com/apis#match-v5.
@@ -85,48 +85,40 @@ def infoMatchs(region, idMatch):
             break
     return {}
 
-def collectMultipleMatchesData(region, nome, tag):
+def collectMultipleMatchesData(region, puuid, max_matches):
     """
     Coleta dados de todas as partidas para um jogador específico
-    
-    Args:
-        region (str): Região do jogador (ex: "americas")
-        nome (str): Nome do jogador
-        tag (str): Tag do jogador
-    
+
     Returns:
         list: Lista de dicionários contendo dados das partidas
     """
-    # Obter informações da conta
-    account = accountInfo(region, nome, tag)
-    if not account:
-        print("Não foi possível obter informações da conta. Verifique o nome, tag e região.")
-        return []
-    puuid = account["puuid"]
 
-    print(puuid)
-    
+    # Coleta todos os Ids das partidas
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    status_text.text("Coletando IDs das partidas...")
+
     allMatchIds = []
-    start_index = 0
-    count_per_request = 100 # Maximo de requests por historico de partidas
 
-    while True:
-        print(f"Coletando IDs de partidas a partir do índice {start_index}...")
-        matchIds_page = idMatchs(region, puuid, count=count_per_request, start=start_index)
-        
-        if not matchIds_page:
-            break # No more match IDs to retrieve
-        
-        allMatchIds.extend(matchIds_page)
-        start_index += count_per_request
+    matchIds_page = idMatchs(region, puuid, max_matches, start=0)
 
-    print(f"Total de IDs de partidas coletados: {len(allMatchIds)}")
+    if not matchIds_page:
+        st.error("Nenhuma partida encontrada.")
+        return []
+        
+    allMatchIds.extend(matchIds_page)
+
+    status_text.text(f"Total de IDs de partidas coletados: {len(allMatchIds)}")
 
     # Lista para armazenar dados das partidas
     matchesData = []
     
     # Coletar dados de cada partida
     for i, matchId in enumerate(allMatchIds):
+
+        progress = (i + 1) / len(allMatchIds)
+        progress_bar.progress(progress)
+
         print(f"Coletando dados da partida {i+1}/{len(allMatchIds)}: {matchId}")
         
         # Obter informações da partida
@@ -292,7 +284,8 @@ def analyzeMatchData(df):
     return analysisResults
 
 # Example of how to use the new functions
-if __name__ == "__main__":
+
+if __name__ == "Bolsonaro":
     # Replace with actual player data
     player_region = "americas"
     player_name = "m1ll4dy"
@@ -316,3 +309,78 @@ if __name__ == "__main__":
                 print(f"{key.replace('_', ' ').title()}: {value:.2f}")
     else:
         print("Nenhum dado de partida foi coletado.")
+
+
+# -------------- Configs Streamlit
+
+# Configuração da barra da página
+st.set_page_config(
+    page_title="League of Legends - Analisador de Partidas",
+    page_icon="⚔️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# -------- Sidebar
+
+# inputs
+
+st.sidebar.header("🎮 Configurações do Jogador")
+    
+region = st.sidebar.selectbox(
+    "Região:",
+    ["americas", "asia", "europe"],
+    index=0
+)
+    
+player_name = st.sidebar.text_input("Nome do Jogador:")
+player_tag = st.sidebar.text_input("Tag do Jogador:")
+    
+max_matches = st.sidebar.slider(
+    "Número máximo de partidas para analisar:",
+    min_value=1,
+    max_value=10,
+    value=4,
+    step=1
+)
+    
+analyze_button = st.sidebar.button("🔍 Analisar Partidas", type="primary")
+
+# -------- Nav
+
+st.title("⚔️ League of Legends - Analisador de Partidas")
+st.markdown("-----")
+
+# Área principal
+if analyze_button:
+    if not player_name or not player_tag:
+        st.error("Por favor, preencha o nome e tag do jogador.")
+        st.stop()
+
+    # Obter informações da conta
+    account = accountInfo(region, player_name, player_tag)
+
+    if not account:
+        st.error("Não foi possível obter informações da conta. Verifique a Região, Nome do jogador e Tag do jogador.")
+        st.stop()
+
+    st.info(f"Coletando dados de partidas para {player_name}#{player_tag}...")
+
+    puuid = account["puuid"] # Id da conta
+        
+    # Coletar dados
+    allMatchesData = collectMultipleMatchesData(region, puuid, max_matches)
+        
+    if allMatchesData:
+        df_matches = pd.DataFrame(allMatchesData)
+        analysis_results = analyzeMatchData(df_matches)
+            
+        # Armazenar dados na sessão
+        st.session_state['df_matches'] = df_matches
+        st.session_state['analysis_results'] = analysis_results
+        st.session_state['player_info'] = f"{player_name}#{player_tag}"
+            
+        st.success("Dados coletados com sucesso!")
+    else:
+        st.error("Nenhum dado de partida foi coletado.")
+    
